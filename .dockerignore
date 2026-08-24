@@ -1,0 +1,52 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Frontend (190MB — not needed in backend image)
+frontend/
+node_modules/
+
+# Documentation
+docs/
+README.md
+LICENSE
+
+# Database files
+*.db
+*.sqlite3
+database/
+
+# Configuration files not needed in container
+.env
+.env.*
+!.env.example
+render.yaml
+render.yml
+docker-compose.yml
+docker/Dockerfile.frontend
+.pre-commit-config.yaml
+.editorconfig
+pytest.ini
+pytest.ini
+
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov
+build/
+dist/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Scripts and tests
+scripts/
+tests/
