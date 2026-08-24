@@ -115,7 +115,14 @@ def _train_linear(X, y, params=None):
     r2 = float(r2_score(y_test, y_pred))
     mae = float(mean_absolute_error(y_test, y_pred))
 
-    importances = dict(zip(X.columns.tolist(), [float(abs(x)) for x in model.coef_]))
+    # Normalize coefficients to 0-1 range (percentages)
+    raw_importances = [float(abs(x)) for x in model.coef_]
+    total = sum(raw_importances)
+    if total > 0:
+        normalized = [v / total for v in raw_importances]
+    else:
+        normalized = [1.0 / len(raw_importances)] * len(raw_importances)
+    importances = dict(zip(X.columns.tolist(), normalized))
 
     return {
         "mape": round(mape, 2),
