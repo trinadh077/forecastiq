@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://forecastiq-00pd.onrender.com",
     ]
 
     S3_ENDPOINT_URL: str = "http://localhost:9000"
