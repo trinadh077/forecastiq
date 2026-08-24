@@ -39,7 +39,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-@app.get("/", tags=["Health"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["Health"])
 async def root():
     return {
         "message": "ForecastIQ API is running",
