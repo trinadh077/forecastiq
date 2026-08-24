@@ -20,12 +20,12 @@ connect_args = {}
 if "sqlite" in db_url:
     connect_args["check_same_thread"] = False
 else:
-    # For PostgreSQL: remove sslmode from URL and configure SSL via connect_args
-    if "sslmode=require" in db_url:
-        db_url = db_url.replace("sslmode=require", "").replace("?&", "?").replace("&&", "&").rstrip("?").rstrip("&")
-        connect_args["ssl"] = _ssl.create_default_context()
-    # Clean up any trailing ? or & from URL
+    # For PostgreSQL: remove unsupported params from URL and configure SSL via connect_args
+    for param in ["sslmode=require", "channel_binding=require"]:
+        db_url = db_url.replace(param, "")
+    db_url = db_url.replace("?&", "?").replace("&&", "&").replace("&&", "&")
     db_url = db_url.rstrip("?").rstrip("&")
+    connect_args["ssl"] = _ssl.create_default_context()
 
 engine = create_async_engine(
     db_url,
