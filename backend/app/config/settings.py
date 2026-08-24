@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "forecastiq"
     POSTGRES_PASSWORD: str = "forecastiq_password"
     POSTGRES_DB: str = "forecastiq_db"
-    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./forecastiq_dev.db")
+    DATABASE_URL: str = Field(default="")
 
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379

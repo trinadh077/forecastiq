@@ -2,16 +2,30 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from app.config.settings import settings
 
+# Build DATABASE_URL from components if not set directly
+db_url = settings.DATABASE_URL
+if not db_url or db_url.strip() == "":
+    # Fallback: build from individual settings
+    db_url = f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+
+# Ensure async driver
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+if "sqlite" in db_url:
     connect_args["check_same_thread"] = False
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=settings.DEBUG,
     future=True,
     pool_pre_ping=True,
-    connect_args=connect_args
+    connect_args=connect_args,
+    pool_size=5,
+    max_overflow=10,
 )
 
 async_session_factory = async_sessionmaker(

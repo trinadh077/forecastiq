@@ -13,7 +13,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: "sqlite+aiosqlite:///./forecastiq_dev.db"
+        value: "postgresql+asyncpg://neondb_owner:npg_RaDjUbs8B7zH@ep-small-pine-axy3dbti-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
       - key: BACKEND_CORS_ORIGINS
         value: '["https://forecastiq-frontend.onrender.com","https://forecastiq-00pd.onrender.com"]'
 
