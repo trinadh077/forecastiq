@@ -1,97 +1,147 @@
-from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from typing import Any, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import pandas as pd
+import io
 import json
-import os
 
 from app.dependencies.database import get_async_db
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.models.dataset import Dataset
-from app.schemas.dataset import DatasetRead, DatasetCreate
-from app.schemas.common import GenericResponse, IDSchema
+from app.schemas.dataset import DatasetRead
+from app.schemas.common import GenericResponse
 
 router = APIRouter()
 
-DEMO_DATASETS = [
-    {
-        "id": "ds-enterprise-2026",
-        "name": "Enterprise_Sales_Q1_Q4_2025.csv",
-        "file_path": "/uploads/Enterprise_Sales_Q1_Q4_2025.csv",
-        "file_size_bytes": 1048576,
-        "row_count": 365,
-        "column_schema": {
-            "columns": ["date", "revenue", "units_sold", "region", "marketing_spend"],
-            "types": {"date": "datetime", "revenue": "float", "units_sold": "int", "region": "string", "marketing_spend": "float"}
-        },
-        "status": "COMPLETED",
-        "organization_id": "demo-org-1",
-        "created_at": "2026-01-10T10:00:00Z",
-        "updated_at": "2026-01-10T10:00:00Z"
-    },
-    {
-        "id": "ds-saas-mrr-2026",
-        "name": "SaaS_MRR_Subscription_Revenue.csv",
-        "file_path": "/uploads/SaaS_MRR_Subscription_Revenue.csv",
-        "file_size_bytes": 524288,
-        "row_count": 730,
-        "column_schema": {
-            "columns": ["date", "mrr", "churn_rate", "new_customers", "expansion_revenue"],
-            "types": {"date": "datetime", "mrr": "float", "churn_rate": "float", "new_customers": "int", "expansion_revenue": "float"}
-        },
-        "status": "COMPLETED",
-        "organization_id": "demo-org-1",
-        "created_at": "2026-02-01T14:30:00Z",
-        "updated_at": "2026-02-01T14:30:00Z"
+
+def detect_column_type(series: pd.Series) -> str:
+    """Detect the semantic type of a pandas Series."""
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "datetime"
+    if pd.api.types.is_integer_dtype(series):
+        return "int"
+    if pd.api.types.is_float_dtype(series):
+        return "float"
+    if pd.api.types.is_bool_dtype(series):
+        return "bool"
+    # Check string columns for categorical vs free text
+    if pd.api.types.is_string_dtype(series):
+        nunique = series.nunique()
+        if nunique < min(20, len(series) * 0.3):
+            return "category"
+        return "string"
+    return "string"
+
+
+def analyze_dataset(df: pd.DataFrame) -> dict:
+    """Analyze a DataFrame and return schema + quality stats."""
+    columns = list(df.columns)
+    types = {}
+    null_counts = {}
+    stats = {}
+
+    for col in columns:
+        col_type = detect_column_type(df[col])
+        types[col] = col_type
+        null_counts[col] = int(df[col].isnull().sum())
+
+        col_stats: dict[str, Any] = {
+            "null_count": null_counts[col],
+            "null_pct": round(null_counts[col] / len(df) * 100, 1) if len(df) > 0 else 0,
+            "unique_count": int(df[col].nunique()),
+        }
+
+        if col_type in ("float", "int"):
+            col_stats["min"] = float(df[col].min()) if not df[col].isnull().all() else None
+            col_stats["max"] = float(df[col].max()) if not df[col].isnull().all() else None
+            col_stats["mean"] = round(float(df[col].mean()), 2) if not df[col].isnull().all() else None
+            col_stats["std"] = round(float(df[col].std()), 2) if not df[col].isnull().all() else None
+
+            # IQR outlier detection
+            if col_type == "float" and not df[col].isnull().all():
+                q1 = float(df[col].quantile(0.25))
+                q3 = float(df[col].quantile(0.75))
+                iqr = q3 - q1
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+                outliers = int(((df[col] < lower_bound) | (df[col] > upper_bound)).sum())
+                col_stats["outlier_count"] = outliers
+                col_stats["iqr_lower"] = round(lower_bound, 2)
+                col_stats["iqr_upper"] = round(upper_bound, 2)
+
+        stats[col] = col_stats
+
+    return {
+        "columns": columns,
+        "types": types,
+        "null_counts": null_counts,
+        "stats": stats,
     }
-]
+
 
 @router.get("", response_model=GenericResponse[List[dict]])
 async def list_datasets(
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> Any:
-    stmt = select(Dataset)
+    stmt = select(Dataset).order_by(Dataset.created_at.desc())
     if current_user.organization_id:
         stmt = stmt.where(Dataset.organization_id == current_user.organization_id)
     res = await db.execute(stmt)
     datasets = res.scalars().all()
-
     out = [DatasetRead.model_validate(d).model_dump(mode="json") for d in datasets]
-    if not out:
-        out = DEMO_DATASETS
+    return GenericResponse(success=True, message="Datasets retrieved successfully", data=out)
 
-    return GenericResponse(
-        success=True,
-        message="Datasets retrieved successfully",
-        data=out
-    )
 
 @router.post("/upload", response_model=GenericResponse[dict], status_code=status.HTTP_201_CREATED)
 async def upload_dataset(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     content = await file.read()
+    filename = file.filename or "uploaded_data.csv"
     file_size = len(content)
 
-    col_schema = {
-        "columns": ["date", "revenue", "units_sold", "marketing_spend"],
-        "types": {"date": "datetime", "revenue": "float", "units_sold": "int", "marketing_spend": "float"}
+    # Parse CSV or Excel
+    try:
+        if filename.lower().endswith((".xlsx", ".xls")):
+            df = pd.read_excel(io.BytesIO(content))
+        elif filename.lower().endswith(".json"):
+            df = pd.read_json(io.BytesIO(content))
+        else:
+            df = pd.read_csv(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="File contains no data rows")
+
+    # Analyze the dataset
+    analysis = analyze_dataset(df)
+
+    # Store sample rows (first 20) as JSON for preview
+    sample_rows = df.head(20).fillna("").to_dict(orient="records")
+
+    # Build column schema for DB storage
+    column_schema = {
+        "columns": analysis["columns"],
+        "types": analysis["types"],
+        "stats": analysis["stats"],
+        "sample_rows": sample_rows,
     }
-    row_cnt = 365
 
     dataset = Dataset(
-        name=file.filename or "uploaded_sales_data.csv",
-        file_path=f"/uploads/{file.filename}",
-        file_size_bytes=file_size if file_size > 0 else 1024,
-        row_count=row_cnt,
-        column_schema=col_schema,
+        name=filename,
+        file_path=f"/uploads/{filename}",
+        file_size_bytes=file_size,
+        row_count=len(df),
+        column_schema=column_schema,
         status="COMPLETED",
         organization_id=current_user.organization_id or "demo-org-1",
-        uploaded_by_id=current_user.id
+        uploaded_by_id=current_user.id,
     )
     db.add(dataset)
     await db.commit()
@@ -99,37 +149,66 @@ async def upload_dataset(
 
     return GenericResponse(
         success=True,
-        message="Dataset uploaded successfully",
-        data=DatasetRead.model_validate(dataset).model_dump(mode="json")
+        message=f"Dataset '{filename}' uploaded and analyzed successfully ({len(df)} rows, {len(df.columns)} columns)",
+        data=DatasetRead.model_validate(dataset).model_dump(mode="json"),
     )
+
 
 @router.get("/{dataset_id}", response_model=GenericResponse[dict])
 async def get_dataset(
     dataset_id: str,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     stmt = select(Dataset).where(Dataset.id == dataset_id)
     res = await db.execute(stmt)
     dataset = res.scalar_one_or_none()
-
     if not dataset:
-        for demo in DEMO_DATASETS:
-            if demo["id"] == dataset_id:
-                return GenericResponse(success=True, message="Dataset found", data=demo)
         raise HTTPException(status_code=404, detail="Dataset not found")
-
     return GenericResponse(
         success=True,
         message="Dataset details retrieved",
-        data=DatasetRead.model_validate(dataset).model_dump(mode="json")
+        data=DatasetRead.model_validate(dataset).model_dump(mode="json"),
     )
+
+
+@router.get("/{dataset_id}/preview", response_model=GenericResponse[dict])
+async def preview_dataset(
+    dataset_id: str,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Return sample rows and column stats for a dataset."""
+    stmt = select(Dataset).where(Dataset.id == dataset_id)
+    res = await db.execute(stmt)
+    dataset = res.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    schema = dataset.column_schema or {}
+    sample_rows = schema.get("sample_rows", [])[:limit]
+
+    return GenericResponse(
+        success=True,
+        message="Dataset preview retrieved",
+        data={
+            "id": dataset.id,
+            "name": dataset.name,
+            "row_count": dataset.row_count,
+            "columns": schema.get("columns", []),
+            "types": schema.get("types", {}),
+            "stats": schema.get("stats", {}),
+            "sample_rows": sample_rows,
+        },
+    )
+
 
 @router.delete("/{dataset_id}", response_model=GenericResponse[None])
 async def delete_dataset(
     dataset_id: str,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     stmt = select(Dataset).where(Dataset.id == dataset_id)
     res = await db.execute(stmt)
@@ -137,9 +216,4 @@ async def delete_dataset(
     if dataset:
         await db.delete(dataset)
         await db.commit()
-
-    return GenericResponse(
-        success=True,
-        message="Dataset deleted successfully",
-        data=None
-    )
+    return GenericResponse(success=True, message="Dataset deleted successfully", data=None)
