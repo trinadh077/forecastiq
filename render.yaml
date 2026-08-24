@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: forecastiq
+    name: forecastiq-backend
     runtime: docker
     dockerfilePath: docker/Dockerfile.backend
     dockerContext: .
@@ -15,4 +15,14 @@ services:
       - key: DATABASE_URL
         value: "sqlite+aiosqlite:///./forecastiq_dev.db"
       - key: BACKEND_CORS_ORIGINS
-        value: '["https://forecastiq-00pd.onrender.com"]'
+        value: '["https://forecastiq-frontend.onrender.com","https://forecastiq-00pd.onrender.com"]'
+
+  - type: web
+    name: forecastiq-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
