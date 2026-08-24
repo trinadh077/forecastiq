@@ -52,9 +52,14 @@ async def root():
 # Middlewares
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+# Parse CORS origins — handle both list and comma-separated string
+_cors_origins = settings.BACKEND_CORS_ORIGINS
+if isinstance(_cors_origins, str):
+    _cors_origins = [o.strip().strip('"').strip("'") for o in _cors_origins.strip('[]').split(',') if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
