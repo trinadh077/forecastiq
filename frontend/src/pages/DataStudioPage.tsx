@@ -92,8 +92,17 @@ export const DataStudioPage: React.FC = () => {
         setSelectedDataset(res.data.data);
       }
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || 'Upload failed. Make sure the backend is running.';
-      alert(msg);
+      let msg = 'Upload failed.';
+      if (e?.response?.data?.detail) {
+        msg = e.response.data.detail;
+      } else if (e?.response?.data?.error?.message) {
+        msg = e.response.data.error.message;
+      } else if (e?.message?.includes('Network Error')) {
+        msg = 'Network error — the backend may be unreachable.';
+      } else if (e?.message) {
+        msg = e.message;
+      }
+      alert(`Upload failed: ${msg}`);
     } finally {
       setIsUploading(false);
       // Reset file input
