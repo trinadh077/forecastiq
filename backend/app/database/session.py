@@ -14,9 +14,18 @@ if db_url.startswith("postgres://"):
 elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# Handle SSL for Neon/Render PostgreSQL — asyncpg uses ssl parameter, not sslmode
+import ssl as _ssl
 connect_args = {}
 if "sqlite" in db_url:
     connect_args["check_same_thread"] = False
+else:
+    # For PostgreSQL: remove sslmode from URL and configure SSL via connect_args
+    if "sslmode=require" in db_url:
+        db_url = db_url.replace("sslmode=require", "").replace("?&", "?").replace("&&", "&").rstrip("?").rstrip("&")
+        connect_args["ssl"] = _ssl.create_default_context()
+    # Clean up any trailing ? or & from URL
+    db_url = db_url.rstrip("?").rstrip("&")
 
 engine = create_async_engine(
     db_url,
