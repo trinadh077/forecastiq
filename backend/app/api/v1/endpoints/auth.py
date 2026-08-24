@@ -9,17 +9,34 @@ from app.dependencies.database import get_async_db
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.models.organization import Organization
+from app.database.session import engine
+from app.database.base_class import Base
+import app.models  # noqa: ensure all models registered
 from app.schemas.auth import LoginRequest, RegisterRequest, Token, RefreshTokenRequest
 from app.schemas.user import UserRead
 from app.schemas.common import GenericResponse
+from app.config.logging import logger
 
 router = APIRouter()
+
+
+async def _ensure_tables():
+    """Create all tables if they don't exist (for ephemeral SQLite on Render)."""
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logger.warning(f"Table creation warning: {e}")
+
 
 @router.post("/register", response_model=GenericResponse[dict], status_code=status.HTTP_201_CREATED)
 async def register(
     req: RegisterRequest,
     db: AsyncSession = Depends(get_async_db)
 ) -> Any:
+    # Ensure tables exist (handles ephemeral SQLite on Render free tier)
+    await _ensure_tables()
+
     # Check existing user
     stmt = select(User).where(User.email == req.email)
     res = await db.execute(stmt)
@@ -67,6 +84,9 @@ async def login(
     req: LoginRequest,
     db: AsyncSession = Depends(get_async_db)
 ) -> Any:
+    # Ensure tables exist
+    await _ensure_tables()
+
     stmt = select(User).where(User.email == req.email)
     res = await db.execute(stmt)
     user = res.scalar_one_or_none()
