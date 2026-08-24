@@ -16,8 +16,8 @@ class Forecast(BaseModel):
     )
     organization: Mapped["Organization"] = relationship("Organization", back_populates="forecasts")
 
-    model_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("ml_models.id", ondelete="CASCADE"), nullable=False
+    model_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("ml_models.id", ondelete="SET NULL"), nullable=True
     )
     model: Mapped["MLModel"] = relationship("MLModel", back_populates="forecasts")
 

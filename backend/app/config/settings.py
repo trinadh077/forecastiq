@@ -1,5 +1,5 @@
-from typing import List, Union
-from pydantic import AnyHttpUrl, Field, validator
+from typing import List
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "ForecastIQ"
     APP_ENV: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     API_V1_STR: str = "/api/v1"
     
     SECRET_KEY: str = Field(default="super-secret-key-change-this-in-production-min-32-chars-long!")

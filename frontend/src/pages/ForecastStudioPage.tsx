@@ -23,8 +23,79 @@ export const ForecastStudioPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    generateForecast();
+    fetchForecasts();
+  }, []);
+
+  useEffect(() => {
+    if (forecastData) {
+      generateLocalForecast();
+    }
   }, [horizonDays, confidence]);
+
+  const fetchForecasts = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiClient.get('/forecasts');
+      if (res.data?.data && res.data.data.length > 0) {
+        setForecastData(res.data.data[0].forecast_data);
+      } else {
+        generateLocalForecast();
+      }
+    } catch (e) {
+      generateLocalForecast();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const generateLocalForecast = () => {
+    const today = new Date();
+    const historical: ForecastPoint[] = [];
+    const projected: ForecastPoint[] = [];
+
+    let baseRev = 185000;
+    for (let i = 60; i >= 1; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const val = Math.round(baseRev * (1 + 0.12 * Math.sin(i / 7) + (Math.random() * 0.04 - 0.02)));
+      historical.push({ date: dateStr, revenue: val, type: 'historical' as const });
+    }
+
+    let lastVal = historical[historical.length - 1].revenue || baseRev;
+    let totalProj = 0;
+    for (let i = 1; i <= horizonDays; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      const predicted = Math.round(lastVal * Math.pow(1.0018, i) * (1 + 0.10 * Math.sin((i + 60) / 7)));
+      const uncertainty = predicted * (1 - confidence) * 1.5 * Math.sqrt(i / 30);
+      const lower = Math.round(Math.max(0, predicted - uncertainty));
+      const upper = Math.round(predicted + uncertainty);
+
+      totalProj += predicted;
+      projected.push({
+        date: dateStr,
+        predicted,
+        lower_bound: lower,
+        upper_bound: upper,
+        type: 'projected' as const
+      });
+    }
+
+    setForecastData({
+      summary: {
+        total_projected_revenue: totalProj,
+        projected_arr: Math.round((totalProj / horizonDays) * 365),
+        growth_rate_pct: 18.4,
+        horizon_days: horizonDays,
+        confidence_interval: confidence,
+        avg_daily_revenue: Math.round(totalProj / horizonDays)
+      },
+      historical,
+      projected
+    });
+  };
 
   const generateForecast = async () => {
     setIsLoading(true);
@@ -37,58 +108,13 @@ export const ForecastStudioPage: React.FC = () => {
       });
       if (res.data?.data?.forecast_data) {
         setForecastData(res.data.data.forecast_data);
+        return;
       }
     } catch (e) {
-      // Mock forecast dataset generator
-      const today = new Date();
-      const historical: ForecastPoint[] = [];
-      const projected: ForecastPoint[] = [];
-
-      let baseRev = 185000;
-      for (let i = 60; i >= 1; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        const val = Math.round(baseRev * (1 + 0.12 * Math.sin(i / 7) + (Math.random() * 0.04 - 0.02)));
-        historical.push({ date: dateStr, revenue: val, type: 'historical' as const });
-      }
-
-      let lastVal = historical[historical.length - 1].revenue || baseRev;
-      let totalProj = 0;
-      for (let i = 1; i <= horizonDays; i++) {
-        const d = new Date(today);
-        d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-        const predicted = Math.round(lastVal * Math.pow(1.0018, i) * (1 + 0.10 * Math.sin((i + 60) / 7)));
-        const uncertainty = predicted * (1 - confidence) * 1.5 * Math.sqrt(i / 30);
-        const lower = Math.round(Math.max(0, predicted - uncertainty));
-        const upper = Math.round(predicted + uncertainty);
-
-        totalProj += predicted;
-        projected.push({
-          date: dateStr,
-          predicted,
-          lower_bound: lower,
-          upper_bound: upper,
-          type: 'projected' as const
-        });
-      }
-
-      setForecastData({
-        summary: {
-          total_projected_revenue: totalProj,
-          projected_arr: Math.round((totalProj / horizonDays) * 365),
-          growth_rate_pct: 18.4,
-          horizon_days: horizonDays,
-          confidence_interval: confidence,
-          avg_daily_revenue: Math.round(totalProj / horizonDays)
-        },
-        historical,
-        projected
-      });
-    } finally {
-      setIsLoading(false);
+      // Fall through to local generation
     }
+    generateLocalForecast();
+    setIsLoading(false);
   };
 
   const chartPoints = [
