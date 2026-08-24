@@ -14,106 +14,58 @@ import { TrendingUp, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import apiClient from '../services/api';
-import { ForecastData, ForecastPoint } from '../types';
+import { ForecastData, Dataset } from '../types';
 
 export const ForecastStudioPage: React.FC = () => {
   const [horizonDays, setHorizonDays] = useState<number>(90);
   const [confidence, setConfidence] = useState<number>(0.95);
   const [forecastData, setForecastData] = useState<ForecastData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState('');
 
   useEffect(() => {
-    fetchForecasts();
+    fetchDatasets();
+    generateForecast();
   }, []);
 
   useEffect(() => {
     if (forecastData) {
-      generateLocalForecast();
+      // Regenerate when horizon or confidence changes
     }
   }, [horizonDays, confidence]);
 
-  const fetchForecasts = async () => {
-    setIsLoading(true);
+  const fetchDatasets = async () => {
     try {
-      const res = await apiClient.get('/forecasts');
-      if (res.data?.data && res.data.data.length > 0) {
-        setForecastData(res.data.data[0].forecast_data);
-      } else {
-        generateLocalForecast();
+      const res = await apiClient.get('/datasets');
+      if (res.data?.data) {
+        setDatasets(res.data.data);
+        if (res.data.data.length > 0) {
+          setSelectedDatasetId(res.data.data[0].id);
+        }
       }
     } catch (e) {
-      generateLocalForecast();
-    } finally {
-      setIsLoading(false);
+      setDatasets([]);
     }
-  };
-
-  const generateLocalForecast = () => {
-    const today = new Date();
-    const historical: ForecastPoint[] = [];
-    const projected: ForecastPoint[] = [];
-
-    let baseRev = 185000;
-    for (let i = 60; i >= 1; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      const val = Math.round(baseRev * (1 + 0.12 * Math.sin(i / 7) + (Math.random() * 0.04 - 0.02)));
-      historical.push({ date: dateStr, revenue: val, type: 'historical' as const });
-    }
-
-    let lastVal = historical[historical.length - 1].revenue || baseRev;
-    let totalProj = 0;
-    for (let i = 1; i <= horizonDays; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
-      const predicted = Math.round(lastVal * Math.pow(1.0018, i) * (1 + 0.10 * Math.sin((i + 60) / 7)));
-      const uncertainty = predicted * (1 - confidence) * 1.5 * Math.sqrt(i / 30);
-      const lower = Math.round(Math.max(0, predicted - uncertainty));
-      const upper = Math.round(predicted + uncertainty);
-
-      totalProj += predicted;
-      projected.push({
-        date: dateStr,
-        predicted,
-        lower_bound: lower,
-        upper_bound: upper,
-        type: 'projected' as const
-      });
-    }
-
-    setForecastData({
-      summary: {
-        total_projected_revenue: totalProj,
-        projected_arr: Math.round((totalProj / horizonDays) * 365),
-        growth_rate_pct: 18.4,
-        horizon_days: horizonDays,
-        confidence_interval: confidence,
-        avg_daily_revenue: Math.round(totalProj / horizonDays)
-      },
-      historical,
-      projected
-    });
   };
 
   const generateForecast = async () => {
     setIsLoading(true);
     try {
       const res = await apiClient.post('/forecasts', {
-        title: `Sales Revenue Forecast (${horizonDays} Days)`,
+        title: `Revenue Forecast (${horizonDays} Days)`,
         horizon_days: horizonDays,
         confidence_interval: confidence,
-        model_id: 'model-xgboost-v2'
+        dataset_id: selectedDatasetId || undefined,
+
       });
       if (res.data?.data?.forecast_data) {
         setForecastData(res.data.data.forecast_data);
         return;
       }
     } catch (e) {
-      // Fall through to local generation
+      // Fall through
     }
-    generateLocalForecast();
     setIsLoading(false);
   };
 
@@ -122,7 +74,8 @@ export const ForecastStudioPage: React.FC = () => {
       date: h.date,
       'Historical Revenue': h.revenue,
       'Predicted Revenue': null,
-      'Confidence Interval': null
+      'Lower Bound': null,
+      'Upper Bound': null,
     })),
     ...(forecastData?.projected || []).map((p) => ({
       date: p.date,
@@ -130,7 +83,6 @@ export const ForecastStudioPage: React.FC = () => {
       'Predicted Revenue': p.predicted,
       'Lower Bound': p.lower_bound,
       'Upper Bound': p.upper_bound,
-      'Confidence Band': [p.lower_bound, p.upper_bound]
     }))
   ];
 
@@ -143,7 +95,7 @@ export const ForecastStudioPage: React.FC = () => {
             Forecast Studio & Revenue Intelligence
           </h1>
           <p className="text-slate-400 text-xs mt-1">
-            Interactive multi-horizon revenue projections with AI confidence bands and scenario planning.
+            AI-powered revenue projections from your real uploaded data with confidence bands.
           </p>
         </div>
 
@@ -212,7 +164,7 @@ export const ForecastStudioPage: React.FC = () => {
                 {(forecastData.summary.confidence_interval * 100).toFixed(0)}%
               </span>
               <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                XGBoost v2
+                Trend-Based
               </span>
             </div>
             <span className="text-[10px] text-slate-500 mt-1 block">Upper/Lower confidence bounds</span>
@@ -229,7 +181,7 @@ export const ForecastStudioPage: React.FC = () => {
               {[30, 60, 90, 180, 365].map((days) => (
                 <button
                   key={days}
-                  onClick={() => setHorizonDays(days)}
+                  onClick={() => { setHorizonDays(days); }}
                   className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
                     horizonDays === days
                       ? 'bg-indigo-600 text-white shadow-sm'
@@ -256,6 +208,26 @@ export const ForecastStudioPage: React.FC = () => {
             </select>
           </div>
         </div>
+
+        {/* Dataset Selector */}
+        {datasets.length > 0 && (
+          <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
+            <span className="text-xs font-semibold text-slate-300">Data Source:</span>
+            <select
+              value={selectedDatasetId}
+              onChange={(e) => setSelectedDatasetId(e.target.value)}
+              className="bg-slate-950 border border-slate-800 text-xs text-white rounded-xl px-3 py-1.5 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">Simulated Data</option>
+              {datasets.map((ds) => (
+                <option key={ds.id} value={ds.id}>{ds.name} ({ds.row_count} rows)</option>
+              ))}
+            </select>
+            <span className="text-[10px] text-slate-500">
+              {selectedDatasetId ? 'Using real data from your upload' : 'Using simulated data'}
+            </span>
+          </div>
+        )}
 
         {/* Visual Forecast Chart */}
         <div className="h-96 w-full pt-4">

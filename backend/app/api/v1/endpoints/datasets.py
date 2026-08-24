@@ -26,8 +26,27 @@ def detect_column_type(series: pd.Series) -> str:
         return "float"
     if pd.api.types.is_bool_dtype(series):
         return "bool"
-    # Check string columns for categorical vs free text
+    # Check string columns for dates, categorical vs free text
     if pd.api.types.is_string_dtype(series):
+        # Try to detect date strings
+        non_null = series.dropna()
+        if len(non_null) > 0:
+            sample = non_null.head(10)
+            date_patterns = ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%m/%d/%Y", "%Y-%m-%dT%H:%M:%S"]
+            for fmt in date_patterns:
+                try:
+                    pd.to_datetime(sample, format=fmt)
+                    return "datetime"
+                except (ValueError, TypeError):
+                    continue
+            # Also try pandas auto-detection
+            try:
+                parsed = pd.to_datetime(sample, errors="coerce")
+                if parsed.notna().sum() >= len(sample) * 0.8:
+                    return "datetime"
+            except Exception:
+                pass
+        # Check for categorical
         nunique = series.nunique()
         if nunique < min(20, len(series) * 0.3):
             return "category"
