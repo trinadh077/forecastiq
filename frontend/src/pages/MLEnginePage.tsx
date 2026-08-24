@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Activity, CheckCircle2, Sliders, Play, Award, AlertCircle, BarChart3 } from 'lucide-react';
+import { Cpu, Activity, CheckCircle2, Sliders, Play, Award, AlertCircle, BarChart3, GitCompareArrows } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import apiClient from '../services/api';
@@ -214,6 +215,114 @@ export const MLEnginePage: React.FC = () => {
               </div>
             </div>
           </form>
+        </Card>
+      )}
+
+      {/* Model Comparison Chart */}
+      {models.length >= 2 && (
+        <Card className="border-slate-800 bg-slate-900/60 p-6 space-y-6">
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-4">
+            <GitCompareArrows className="h-5 w-5 text-indigo-400" />
+            <h3 className="text-sm font-semibold text-white">Model Comparison</h3>
+            <span className="text-[10px] text-slate-500 ml-2">{models.length} models trained</span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Accuracy Comparison Bar Chart */}
+            <div>
+              <h4 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-3">Accuracy Metrics (lower is better for MAPE/RMSE, higher for R²)</h4>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={models.map((m) => ({
+                      name: m.algorithm.replace('_', ' '),
+                      MAPE: m.metrics?.mape || 0,
+                      'R² Score': (m.metrics?.r2_score || 0) * 100,
+                      'MAE ($K)': (m.metrics?.mae || 0) / 1000,
+                    }))}
+                    margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 10 }} />
+                    <YAxis stroke="#64748b" tick={{ fontSize: 10 }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '11px' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                    <Bar dataKey="R² Score" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="MAPE" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="MAE ($K)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Radar Chart - Feature Importance Comparison */}
+            <div>
+              <h4 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-3">Feature Importance Comparison</h4>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart
+                    data={(() => {
+                      // Collect all unique features across models
+                      const allFeatures = new Set<string>();
+                      models.forEach((m) => {
+                        const fi = (m.metrics as any)?.feature_importance || {};
+                        Object.keys(fi).forEach((f) => allFeatures.add(f));
+                      });
+                      const features = Array.from(allFeatures).slice(0, 6);
+                      return features.map((f) => {
+                        const entry: Record<string, any> = { feature: f };
+                        models.forEach((m) => {
+                          const fi = (m.metrics as any)?.feature_importance || {};
+                          entry[m.algorithm] = ((fi[f] || 0) * 100);
+                        });
+                        return entry;
+                      });
+                    })()}
+                    margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
+                  >
+                    <PolarGrid stroke="#1e293b" />
+                    <PolarAngleAxis dataKey="feature" tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                    <PolarRadiusAxis tick={{ fontSize: 8, fill: '#64748b' }} />
+                    {models.map((m, idx) => (
+                      <Radar
+                        key={m.id}
+                        name={m.algorithm.replace('_', ' ')}
+                        dataKey={m.algorithm}
+                        stroke={['#6366f1', '#10b981', '#f59e0b'][idx % 3]}
+                        fill={['#6366f1', '#10b981', '#f59e0b'][idx % 3]}
+                        fillOpacity={0.15}
+                      />
+                    ))}
+                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '11px' }}
+                      formatter={(value: any) => [`${Number(value).toFixed(1)}%`]} 
+                    />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* Best Model Callout */}
+          {(() => {
+            const best = models.reduce((b, m) => (m.metrics?.r2_score || 0) > (b.metrics?.r2_score || 0) ? m : b, models[0]);
+            return (
+              <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <Award className="h-5 w-5 text-emerald-400" />
+                  <div>
+                    <span className="text-xs font-semibold text-emerald-400">Best Model: {best.name}</span>
+                    <span className="text-[10px] text-slate-400 ml-2">
+                      R² = {best.metrics?.r2_score?.toFixed(4)} &middot; MAPE = {best.metrics?.mape?.toFixed(2)}% &middot; RMSE = ${best.metrics?.rmse?.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </Card>
       )}
 
