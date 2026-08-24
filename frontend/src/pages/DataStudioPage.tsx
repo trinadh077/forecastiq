@@ -81,9 +81,7 @@ export const DataStudioPage: React.FC = () => {
     formData.append('file', file);
 
     try {
-      const res = await apiClient.post('/datasets/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await apiClient.post('/datasets/upload', formData);
       if (res.data?.data) {
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);

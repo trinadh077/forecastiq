@@ -31,19 +31,12 @@ export const LoginPage: React.FC = () => {
         setError('Invalid login credentials');
       }
     } catch (err: any) {
-      // Fallback for immediate demo if backend is offline
-      const mockUser = {
-        id: 'user-demo-1',
-        email,
-        full_name: 'Enterprise Executive',
-        is_active: true,
-        is_superuser: false,
-        organization_id: 'org-demo-1',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      login('mock-jwt-token-forecastiq', mockUser);
-      navigate('/');
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.detail || err?.message || 'Login failed';
+      if (msg.includes('Network Error') || msg.includes('network')) {
+        setError('Cannot reach the backend server. Please try again in a moment.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }

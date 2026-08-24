@@ -39,18 +39,12 @@ export const RegisterPage: React.FC = () => {
         setError('Failed to create account');
       }
     } catch (err: any) {
-      const mockUser = {
-        id: 'user-new-1',
-        email,
-        full_name: fullName,
-        is_active: true,
-        is_superuser: false,
-        organization_id: 'org-new-1',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      login('mock-jwt-token-new', mockUser);
-      navigate('/');
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.detail || err?.message || 'Registration failed';
+      if (msg.includes('Network Error') || msg.includes('network')) {
+        setError('Cannot reach the backend server. Please try again in a moment.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }
