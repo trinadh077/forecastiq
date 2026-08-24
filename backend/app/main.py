@@ -39,6 +39,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.get("/", tags=["Health"])
+async def root():
+    return {
+        "message": "ForecastIQ API is running",
+        "status": "healthy",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "api": settings.API_V1_STR,
+    }
+
 # Middlewares
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
