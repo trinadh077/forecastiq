@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Database, FileText, CheckCircle2, Table, AlertTriangle, BarChart3 } from 'lucide-react';
+import { Upload, Database, FileText, CheckCircle2, Table, AlertTriangle, BarChart3, Shield, Info } from 'lucide-react';
 import { Card } from '../components/ui/Card';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import apiClient from '../services/api';
 import { Dataset } from '../types';
 
@@ -25,13 +26,26 @@ interface DatasetPreview {
   sample_rows: Record<string, any>[];
 }
 
+interface QualityReport {
+  overall_score: number;
+  scores: { completeness: number; outlier_free: number; uniqueness: number; consistency: number };
+  null_analysis: { column: string; total_missing: number; missing_pct: number }[];
+  outlier_analysis: { column: string; outlier_count: number; outlier_pct: number }[];
+  duplicates: { count: number; pct: number };
+  type_distribution: Record<string, number>;
+  consistency_issues: { column: string; issue: string; severity: string }[];
+  recommendations: { priority: string; message: string }[];
+}
+
 export const DataStudioPage: React.FC = () => {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
+  const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isLoadingQuality, setIsLoadingQuality] = useState(false);
 
   useEffect(() => {
     fetchDatasets();
@@ -40,6 +54,7 @@ export const DataStudioPage: React.FC = () => {
   useEffect(() => {
     if (selectedDataset) {
       fetchPreview(selectedDataset.id);
+      setQualityReport(null);
     }
   }, [selectedDataset]);
 
@@ -53,7 +68,6 @@ export const DataStudioPage: React.FC = () => {
         }
       }
     } catch (e) {
-      // Backend offline — show empty state
       setDatasets([]);
     }
   };
@@ -72,6 +86,20 @@ export const DataStudioPage: React.FC = () => {
     }
   };
 
+  const fetchQualityReport = async (datasetId: string) => {
+    setIsLoadingQuality(true);
+    try {
+      const res = await apiClient.get(`/datasets/${datasetId}/quality`);
+      if (res.data?.data) {
+        setQualityReport(res.data.data);
+      }
+    } catch (e) {
+      setQualityReport(null);
+    } finally {
+      setIsLoadingQuality(false);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -86,24 +114,13 @@ export const DataStudioPage: React.FC = () => {
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);
         fetchDatasets();
-        // Select the newly uploaded dataset
         setSelectedDataset(res.data.data);
       }
     } catch (e: any) {
-      let msg = 'Upload failed.';
-      if (e?.response?.data?.detail) {
-        msg = e.response.data.detail;
-      } else if (e?.response?.data?.error?.message) {
-        msg = e.response.data.error.message;
-      } else if (e?.message?.includes('Network Error')) {
-        msg = 'Network error — the backend may be unreachable.';
-      } else if (e?.message) {
-        msg = e.message;
-      }
+      const msg = e?.response?.data?.detail || e?.response?.data?.error?.message || e?.message || 'Upload failed';
       alert(`Upload failed: ${msg}`);
     } finally {
       setIsUploading(false);
-      // Reset file input
       e.target.value = '';
     }
   };
@@ -124,6 +141,18 @@ export const DataStudioPage: React.FC = () => {
       bool: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
     };
     return colors[type] || 'text-slate-300 bg-slate-500/10 border-slate-500/20';
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 90) return 'text-emerald-400';
+    if (score >= 70) return 'text-amber-400';
+    return 'text-rose-400';
+  };
+
+  const getPriorityColor = (p: string) => {
+    if (p === 'high') return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+    if (p === 'medium') return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+    return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
   };
 
   return (
@@ -215,6 +244,14 @@ export const DataStudioPage: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchQualityReport(selectedDataset.id)}
+                disabled={isLoadingQuality}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium rounded-lg transition-all"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                {isLoadingQuality ? 'Analyzing...' : 'Data Quality Report'}
+              </button>
               <span className="text-xs px-3 py-1 bg-slate-800 rounded-lg text-slate-300">
                 Uploaded: {new Date(selectedDataset.created_at).toLocaleDateString()}
               </span>
@@ -293,8 +330,124 @@ export const DataStudioPage: React.FC = () => {
             </div>
           )}
 
+          {/* DATA QUALITY REPORT */}
+          {qualityReport && (
+            <div className="space-y-6 border-t border-slate-800 pt-6">
+              <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Shield className="h-4 w-4 text-indigo-400" />
+                Data Quality Report
+              </h4>
+
+              {/* Overall Score + Dimension Scores */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <Card className="p-4 border-slate-800 bg-slate-900/60 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Overall</span>
+                  <span className={`text-3xl font-bold ${getScoreColor(qualityReport.overall_score)}`}>
+                    {qualityReport.overall_score}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">/100</span>
+                </Card>
+                {Object.entries(qualityReport.scores).map(([key, val]) => (
+                  <Card key={key} className="p-4 border-slate-800 bg-slate-900/60 text-center">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">
+                      {key.replace('_', ' ')}
+                    </span>
+                    <span className={`text-2xl font-bold ${getScoreColor(val)}`}>{val}</span>
+                    <span className="text-[10px] text-slate-500 block">%</span>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Charts Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Null Analysis Bar Chart */}
+                <div>
+                  <h5 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-3">Missing Values by Column</h5>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={qualityReport.null_analysis.map((n) => ({
+                          column: n.column.length > 12 ? n.column.slice(0, 12) + '...' : n.column,
+                          Missing: n.total_missing,
+                          Present: Math.max(0, (preview?.sample_rows?.length || 20) - n.total_missing),
+                        }))}
+                        margin={{ top: 5, right: 10, left: -10, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="column" stroke="#64748b" tick={{ fontSize: 9 }} />
+                        <YAxis stroke="#64748b" tick={{ fontSize: 9 }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '11px' }} />
+                        <Legend wrapperStyle={{ fontSize: '10px' }} />
+                        <Bar dataKey="Present" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="Missing" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Type Distribution Radar */}
+                <div>
+                  <h5 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-3">Column Type Distribution</h5>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart
+                        data={Object.entries(qualityReport.type_distribution).map(([type, count]) => ({
+                          type,
+                          count,
+                        }))}
+                        margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
+                      >
+                        <PolarGrid stroke="#1e293b" />
+                        <PolarAngleAxis dataKey="type" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <PolarRadiusAxis tick={{ fontSize: 8, fill: '#64748b' }} />
+                        <Radar name="Columns" dataKey="count" stroke="#6366f1" fill="#6366f1" fillOpacity={0.3} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '11px' }} />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              {/* Duplicates + Consistency */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card className="p-4 border-slate-800 bg-slate-900/60">
+                  <h5 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-2">Duplicate Rows</h5>
+                  <span className="text-2xl font-bold text-white">{qualityReport.duplicates.count}</span>
+                  <span className="text-xs text-slate-400 ml-2">({qualityReport.duplicates.pct}%)</span>
+                </Card>
+                <Card className="p-4 border-slate-800 bg-slate-900/60">
+                  <h5 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-2">Consistency Issues</h5>
+                  {qualityReport.consistency_issues.length === 0 ? (
+                    <span className="text-xs text-emerald-400">No issues found</span>
+                  ) : (
+                    <div className="space-y-1">
+                      {qualityReport.consistency_issues.map((ci, i) => (
+                        <span key={i} className="text-[10px] text-amber-400 block">{ci.column}: {ci.issue}</span>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </div>
+
+              {/* Recommendations */}
+              <Card className="p-4 border-slate-800 bg-slate-900/60">
+                <h5 className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-1">
+                  <Info className="h-3 w-3" /> Recommendations
+                </h5>
+                <div className="space-y-2">
+                  {qualityReport.recommendations.map((rec, i) => (
+                    <div key={i} className={`p-2 rounded-lg text-[11px] flex items-start gap-2 border ${getPriorityColor(rec.priority)}`}>
+                      <span className="font-semibold uppercase text-[9px] shrink-0 mt-0.5">{rec.priority}</span>
+                      <span>{rec.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          )}
+
           {/* Sample Data Preview Table */}
-          {preview && preview.sample_rows.length > 0 && (
+          {preview && preview.sample_rows.length > 0 && !qualityReport && (
             <div>
               <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
                 Sample Rows Preview (First {Math.min(preview.sample_rows.length, 20)} Rows)
