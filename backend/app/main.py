@@ -103,7 +103,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             "success": False,
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
-                "message": "An unexpected error occurred."
+                "message": str(exc),
+                "details": type(exc).__name__
             }
         }
     )
